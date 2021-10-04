@@ -72,7 +72,10 @@ def main():
         total_log_prob += log_prob
 
     bits = -total_log_prob / math.log(2)   # convert to bits of surprisal
+    #print(bits)
+    
     tokens = sum(num_tokens(test_file) for test_file in args.test_files)
+    #print(tokens)
     print(f"Overall cross-entropy:\t{bits / tokens:.5f} bits per token")
 
 
