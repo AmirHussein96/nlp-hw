@@ -491,14 +491,14 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         Ymat =  torch.matmul(y,self.Y.double())
         # Z_den = torch.sum(torch.exp(torch.matmul(Xmat,torch.transpose(self.vocab_emb,0,1).double())
         #                      + torch.matmul(Ymat,torch.transpose(self.vocab_emb,0,1).double())))
-        if self.Z_den == None:
-            Z_den = torch.logsumexp(torch.matmul(Xmat,torch.transpose(self.vocab_emb,0,1).double())
+        #if self.Z_den == None:
+        Z_den = torch.logsumexp(torch.matmul(Xmat,torch.transpose(self.vocab_emb,0,1).double())
                                 + torch.matmul(Ymat,torch.transpose(self.vocab_emb,0,1).double()),0)
-        else:
-            Z_den = self.Z_den
+        #else:
+        #   Z_den = self.Z_den
         p_num = torch.exp(torch.matmul(Xmat,z) + torch.matmul(Ymat,z))
         p = torch.log(p_num) - Z_den
-        self.Z_den = Z_den
+        #self.Z_den = Z_den
         
         return p
 
@@ -575,9 +575,10 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
                     l2_reg += torch.norm(param)
 
                 loss = (loss - self.l2 * l2_reg)/N
-                (-loss).backward(retain_graph=True)
+                (-loss).backward()
                 optimizer.step()
                 optimizer.zero_grad() 
+                #pdb.set_trace()
                 total_loss = total_loss + loss.item()
 
         
@@ -757,14 +758,13 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
                     batchz.append(trigram[2])
                     count+=1
                     #pdb.set_trace()
-                loss += self.prob(batchx,batchy,batchz)        
-                #loss += self.prob(trigram[0],trigram[1],trigram[2])
+                loss = self.prob(batchx,batchy,batchz)  
                 
-            
-            l2_reg = torch.tensor(0.)
-            for param in self.parameters():
-                l2_reg += torch.norm(param)
-            loss = (loss - self.l2 * l2_reg)/N
+                l2_reg = torch.tensor(0.)
+                for param in self.parameters():
+                    l2_reg += torch.norm(param)
+                loss =  (loss - self.l2 * l2_reg)/N
+                total_loss = total_loss + loss.item()
         
             
             (-loss).backward(retain_graph=True)
@@ -774,7 +774,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
             #      pdb.set_trace()
             #pdb.set_trace()
             #pbar.set_description(f"Epoch {i}: F = {loss.item()} ")
-            print(f"epoch {i+1}: F = {loss.item()} ")
+            print(f"epoch {i+1}: F = {total_loss} ")
        
         log.info("done optimizing.")
 
