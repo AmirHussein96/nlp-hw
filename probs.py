@@ -468,7 +468,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         
         p = self.log_prob(x, y, z)
        # assert isinstance(p, float)  # checks that we'll adhere to the return type annotation, which is inherited from superclass
-        return p.item() # please change this to p when training the model
+        return p # please change this to p when training the model
 
     def log_prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> torch.Tensor:
         """Return log p(z | xy) according to this language model."""
