@@ -47,7 +47,7 @@ def file_log_prob(file: Path, lm: LanguageModel) -> float:
     log-probability of all these sentences, under the given language model.
     (This is a natural log, as for all our internal computations.)
     """
-    log_prob = 0.0
+    log_prob = None
     for (x, y, z) in read_trigrams(file, lm.vocab):
         prob = lm.prob(x, y, z)  # p(z | xy)
         #pdb.set_trace()
