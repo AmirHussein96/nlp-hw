@@ -381,7 +381,8 @@ class BackoffAddLambdaLanguageModel(AddLambdaLanguageModel):
         # TODO: Reimplement me so that I do backoff
         assert self.event_count[x, y, z] <= self.context_count[x, y]
         #pdb.set_trace()
-        p_unigrams = self.event_count[(z,)]/self.context_count[()]
+        # p_unigrams = self.event_count[(z,)]/self.context_count[()]
+        p_unigrams = (self.event_count[(z,)]+self.lambda_)/(self.context_count[()]+self.lambda_*self.vocab_size)
         if p_unigrams ==0:
             p_unigrams = self.event_count[('OOV',)]/self.context_count[()]
             p_bigrams = (self.event_count[(y,'OOV')] + self.lambda_*self.vocab_size*p_unigrams)/(self.context_count[(y,)]+self.lambda_*self.vocab_size)
@@ -467,7 +468,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         
         p = self.log_prob(x, y, z)
        # assert isinstance(p, float)  # checks that we'll adhere to the return type annotation, which is inherited from superclass
-        return p
+        return p.item() # please change this to p when training the model
 
     def log_prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> torch.Tensor:
         """Return log p(z | xy) according to this language model."""
@@ -614,7 +615,58 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # each parameter were changed slightly.
 
 
-        def prob_batch(self, x: Wordtype, y: Wordtype, z: Wordtype) -> float:
+        
+
+        # So how does the `backward` method work?
+        #
+        # As Python sees it, your parameters and the values that you compute
+        # from them are not actually numbers.  They are `torch.Tensor` objects.
+        # A Tensor may represent a numeric scalar, vector, matrix, etc.
+        #
+        # Every Tensor knows how it was computed.  For example, if you write `a
+        # = b + exp(c)`, PyTorch not only computes `a` but also stores
+        # backpointers in `a` that remember how the numeric value of `a` depends
+        # on the numeric values of `b` and `c`.  In turn, `b` and `c` have their
+        # own backpointers that remember what they depend on, and so on, all the
+        # way back to the parameters.  This is just like the backpointers in
+        # parsing!
+        #
+        # Every Tensor has a `backward` method that computes the gradient of its
+        # numeric value with respect to the parameters, using "back-propagation"
+        # through this computation graph.  In particular, once you've computed
+        # the forward quantity F_i(θ) as a tensor, you can trace backwards to
+        # get its gradient -- i.e., to find out how rapidly it would change if
+        # each parameter were changed slightly.
+
+
+class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
+    # TODO: IMPLEMENT ME!
+    
+    # This is where you get to come up with some features of your own, as
+    # described in the reading handout.  This class inherits from
+    # EmbeddingLogLinearLanguageModel and you can override anything, such as
+    # `log_prob`.
+
+    # OTHER OPTIONAL IMPROVEMENTS: You could override the `train` method.
+    # Instead of using 10 epochs, try "improving the SGD training loop" as
+    # described in the reading handout.  Some possibilities:
+    #
+    # * You can use the `draw_trigrams_forever` function that we
+    #   provided to shuffle the trigrams on each epoch.
+    #
+    # * You can choose to compute F_i using a mini-batch of trigrams
+    #   instead of a single trigram, and try to vectorize the computation
+    #   over the mini-batch.
+    #
+    # * Instead of running for exactly 10*N trigrams, you can implement
+    #   early stopping by giving the `train` method access to dev data.
+    #   This will run for as long as continued training is helpful,
+    #   so it might run for more or fewer than 10*N trigrams.
+    #
+    # * You could use a different optimization algorithm instead of SGD, such
+    #   as `torch.optim.Adam` (https://pytorch.org/docs/stable/optim.html).
+    #
+    def prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> float:
         # This returns an ordinary float probability, using the
         # .item() method that extracts a number out of a Tensor.
         #pdb.set_trace()
@@ -650,7 +702,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # assert isinstance(p, float)  # checks that we'll adhere to the return type annotation, which is inherited from superclass
             return p
 
-    def log_prob_batch(self, x: Wordtype, y: Wordtype, z: Wordtype) -> torch.Tensor:
+    def log_prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> torch.Tensor:
         """Return log p(z | xy) according to this language model."""
         # TODO: IMPLEMENT ME!
         # Don't forget that you can create additional methods
@@ -683,7 +735,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         
         return p
 
-    def train_batch(self, file: Path):    # type: ignore
+    def train(self, file: Path):    # type: ignore
         
         ### Technically this method shouldn't be called `train`,
         ### because this means it overrides not only `LanguageModel.train` (as desired)
@@ -777,54 +829,3 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
             print(f"epoch {i+1}: F = {total_loss} ")
        
         log.info("done optimizing.")
-
-        # So how does the `backward` method work?
-        #
-        # As Python sees it, your parameters and the values that you compute
-        # from them are not actually numbers.  They are `torch.Tensor` objects.
-        # A Tensor may represent a numeric scalar, vector, matrix, etc.
-        #
-        # Every Tensor knows how it was computed.  For example, if you write `a
-        # = b + exp(c)`, PyTorch not only computes `a` but also stores
-        # backpointers in `a` that remember how the numeric value of `a` depends
-        # on the numeric values of `b` and `c`.  In turn, `b` and `c` have their
-        # own backpointers that remember what they depend on, and so on, all the
-        # way back to the parameters.  This is just like the backpointers in
-        # parsing!
-        #
-        # Every Tensor has a `backward` method that computes the gradient of its
-        # numeric value with respect to the parameters, using "back-propagation"
-        # through this computation graph.  In particular, once you've computed
-        # the forward quantity F_i(θ) as a tensor, you can trace backwards to
-        # get its gradient -- i.e., to find out how rapidly it would change if
-        # each parameter were changed slightly.
-
-
-class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
-    # TODO: IMPLEMENT ME!
-    
-    # This is where you get to come up with some features of your own, as
-    # described in the reading handout.  This class inherits from
-    # EmbeddingLogLinearLanguageModel and you can override anything, such as
-    # `log_prob`.
-
-    # OTHER OPTIONAL IMPROVEMENTS: You could override the `train` method.
-    # Instead of using 10 epochs, try "improving the SGD training loop" as
-    # described in the reading handout.  Some possibilities:
-    #
-    # * You can use the `draw_trigrams_forever` function that we
-    #   provided to shuffle the trigrams on each epoch.
-    #
-    # * You can choose to compute F_i using a mini-batch of trigrams
-    #   instead of a single trigram, and try to vectorize the computation
-    #   over the mini-batch.
-    #
-    # * Instead of running for exactly 10*N trigrams, you can implement
-    #   early stopping by giving the `train` method access to dev data.
-    #   This will run for as long as continued training is helpful,
-    #   so it might run for more or fewer than 10*N trigrams.
-    #
-    # * You could use a different optimization algorithm instead of SGD, such
-    #   as `torch.optim.Adam` (https://pytorch.org/docs/stable/optim.html).
-    #
-    pass
