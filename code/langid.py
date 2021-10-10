@@ -8,7 +8,6 @@ import logging
 import math
 from pathlib import Path
 import pdb
-import torch
 
 from probs import LanguageModel, num_tokens, read_trigrams
 
@@ -57,12 +56,7 @@ def file_log_prob(file: Path, lm: LanguageModel) -> float:
     log_prob = 0.0
     for (x, y, z) in read_trigrams(file, lm.vocab):
         prob = lm.prob(x, y, z)  # p(z | xy)
-        #pdb.set_trace()
-        if torch.is_tensor(prob):
-            prob = prob.item()
-            log_prob += prob
-        else:
-            log_prob += math.log(prob)
+        log_prob += math.log(prob)
     return log_prob
 
 
@@ -73,7 +67,7 @@ def main():
     log.info("Testing...")
     lm1 = LanguageModel.load(args.model[0])
     lm2 = LanguageModel.load(args.model[1])
-    assert lm1.vocab == lm2.vocab, "Make sure both models have the same vocabulary"
+    #assert lm1.vocab == lm2.vocab, "Make sure both models have the same vocabulary"
     prior1 = args.prior
     prior2 = 1 - prior1
     # We use natural log for our internal computations and that's
@@ -82,21 +76,23 @@ def main():
     # log base e to log base 2 at print time, by dividing by log(2).
 
     log.info("Per-file log-probabilities:")
-    count_spam = 0
-    count_gen = 0
+    class1 = 'EN'
+    class2 = 'SP'
+    count_sp = 0
+    count_en = 0
     for file in args.test_files:
         log_prob1: float = file_log_prob(file, lm1)
         log_prob2: float = file_log_prob(file, lm2)
         if log_prob1+math.log(prior1) > log_prob2+math.log(prior2):
-            print(f"{args.model[0]}\t{file}")
-            count_gen+=1
+            print(f"EN\t{file}")
+            count_en+=1
         else:
-            print(f"{args.model[1]}\t{file}")
-            count_spam+=1
-    per_spam = round(count_spam/(count_spam+count_gen),2)*100
-    per_gen = round(count_gen/(count_spam+count_gen),2)*100
-    print(f"{count_gen} files were more probably {args.model[0]} ({per_gen}%)")
-    print(f"{count_spam} files were more probably {args.model[1]} ({per_spam}%)")
+            print(f"SP\t{file}")
+            count_sp+=1
+    per_sp = round(count_sp/(count_sp+count_en),2)*100
+    per_en = round(count_en/(count_sp+count_en),2)*100
+    print(f"{count_en} files were more probably English ({per_en}%)")
+    print(f"{count_sp} files were more probably Spanish ({per_sp}%)")
 
 
 if __name__ == "__main__":

@@ -23,12 +23,18 @@ import logging
 import sys
 
 from pathlib import Path
-
+import pdb
 import torch
 from torch import nn
 from torch import optim
 from typing import Counter
 from collections import Counter
+import random
+import numpy as np
+from tqdm import trange
+import tqdm
+import math
+
 
 log = logging.getLogger(Path(__file__).stem)  # Basically the only okay global variable.
 
@@ -50,6 +56,52 @@ BOS: Wordtype = "BOS"  # special word type for context at Beginning Of Sequence
 EOS: Wordtype = "EOS"  # special word type for observed token at End Of Sequence
 OOV: Wordtype = "OOV"  # special word type for all Out-Of-Vocabulary words
 OOL: Wordtype = "OOL"  # special word type whose embedding is used for OOV and all other Out-Of-Lexicon words
+
+##### read lexicon class
+class Lexicon:
+	"""
+    Class that manages a lexicon and can compute similarity.
+    >>> my_lexicon = Lexicon.from_file(my_file)
+	>>> my_lexicon.find_similar_words(bagpipe)
+	"""
+
+	def __init__(self, int_to_word={},word_to_int={},embeddings=None) -> None:
+		"""Load information into coupled word-index mapping and embedding matrix."""
+		# FINISH THIS FUNCTION
+		self.word_to_int = word_to_int
+		self.int_to_word = int_to_word
+		self.embeddings = embeddings
+        # Store your stuff! Both the word-index mapping and the embedding matrix.
+        #
+        # Do something with this size info?
+        # PyTorch's th.Tensor objects rely on fixed-size arrays in memory.
+        # One of the worst things you can do for efficiency is
+        # append row-by-row, like you would with a Python list.
+        #
+        # Probably make the entire list all at once, then convert to a th.Tensor.
+        # Otherwise, make the th.Tensor and overwrite its contents row-by-row.
+
+	@classmethod
+	def from_file(cls, file: Path) -> Lexicon:
+        # FINISH THIS FUNCTION
+		lines = []
+		count = 0
+		word_to_int = {}
+		int_to_word={}
+		
+		with open(file) as f:
+			first_line = next(f)  # Peel off the special first line.
+			for line in f:  # All of the other lines are regular.
+                  # `pass` is a placeholder. Replace with real code!
+				line = line.split('\t')
+				lines.append(np.array(line[1:],dtype=np.float64))
+				int_to_word[count]=line[0]
+				word_to_int[line[0]]=count
+				count+=1
+		embeddings = torch.tensor(lines, dtype=torch.float64)
+		lexicon = Lexicon(int_to_word,word_to_int, embeddings)  # Maybe put args here. Maybe follow Builder pattern
+		return lexicon
+
 
 
 ##### UTILITY FUNCTIONS FOR CORPUS TOKENIZATION
@@ -225,6 +277,44 @@ class LanguageModel:
             log.info(f"Loaded model from {source}")
             return pickle.load(f)
 
+    def sample(self,max_length=20, start_symbol='BOS', end_symbol='EOS'):
+    #     """ implementation od sampling method Q6
+    #      Args:
+                               
+    #         max_length (int): max number of words in a generated sentence
+        
+    #     Returns:
+    #         gen_sen: the generated random sentence 
+        
+    #     """
+        self.gen_sen = ""
+        x , y = "BOS", "BOS"
+        #pdb.set_trace()
+        self.new_sample((x,y), self.gen_sen, max_length)
+   
+    def new_sample(self, context, gen_sen, remaining_expansions):
+        remaining_expansions -= 1
+        probs = []
+        choice_opt = []
+        x,y = context
+        for z in self.vocab:
+            probs.append(self.prob(x,y,z))
+            choice_opt.append(z)
+        sample =  random.choices(choice_opt, weights=probs, k=1)[0]
+        if sample == "":
+            pass
+        else:
+            self.gen_sen = self.gen_sen + " " + sample
+            if len(gen_sen) > 0 and gen_sen[-1] == "EOS":
+                return 
+                #gen_sen = gen_sen + "(" + node.name + " "
+            elif remaining_expansions == 0 and gen_sen[-1] != "EOS":
+                    self.gen_sen += " ..."
+                    return
+            else:
+                x, y = y, z 
+        self.new_sample((x,y), self.gen_sen, remaining_expansions)
+    
     def save(self, destination: Path) -> None:
         import pickle
         log.info(f"Saving model to {destination}")
@@ -274,7 +364,7 @@ class AddLambdaLanguageModel(LanguageModel):
 
     def prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> float:
         assert self.event_count[x, y, z] <= self.context_count[x, y]
-        return ((self.event_count[x, y, z] + self.lambda_) /
+        return ((self.event_count[x, y, z] + self.lambda_) / 
                 (self.context_count[x, y] + self.lambda_ * self.vocab_size))
 
         # Notice that summing the numerator over all values of typeZ
@@ -289,7 +379,24 @@ class BackoffAddLambdaLanguageModel(AddLambdaLanguageModel):
 
     def prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> float:
         # TODO: Reimplement me so that I do backoff
-        return super().prob(x, y, z)
+        assert self.event_count[x, y, z] <= self.context_count[x, y]
+        #pdb.set_trace()
+        p_unigrams = self.event_count[(z,)]/self.context_count[()]
+        if p_unigrams ==0:
+            p_unigrams = self.event_count[('OOV',)]/self.context_count[()]
+            p_bigrams = (self.event_count[(y,'OOV')] + self.lambda_*self.vocab_size*p_unigrams)/(self.context_count[(y,)]+self.lambda_*self.vocab_size)
+            
+            trigram = ((self.event_count[x, y, 'OOV'] + self.lambda_*self.vocab_size*p_bigrams) /
+                    (self.context_count[x, y] + self.lambda_ * self.vocab_size))
+        else:
+            p_bigrams = (self.event_count[(y,z)] + self.lambda_*self.vocab_size*p_unigrams)/(self.context_count[(y,)]+self.lambda_*self.vocab_size)
+            
+            trigram = ((self.event_count[x, y, z] + self.lambda_*self.vocab_size*p_bigrams) /
+                    (self.context_count[x, y] + self.lambda_ * self.vocab_size))
+       # if trigram <= 0.0:
+        #     pdb.set_trace()
+        return trigram
+        #return super().prob(x, y, z)
         # Don't forget the difference between the Wordtype z and the
         # 1-element tuple (z,). If you're looking up counts,
         # these will have very different counts!
@@ -304,10 +411,24 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
             log.error(f"l2 regularization strength value was {l2}")
             raise ValueError("You must include a non-negative regularization value")
         self.l2: float = l2
-
+        self.Z_den = None
+        
         # TODO: READ THE LEXICON OF WORD VECTORS AND STORE IT IN A USEFUL FORMAT.
-        self.dim = 99999999999  # TODO: SET THIS TO THE DIMENSIONALITY OF THE VECTORS
-
+        self.lexicon = Lexicon.from_file(lexicon_file)
+        
+        self.dim =  len(self.lexicon.embeddings[1]) #99999999999  # TODO: SET THIS TO THE DIMENSIONALITY OF THE VECTORS
+        self.vocab_emb = torch.zeros((len(self.vocab),self.dim),dtype=torch.float32)
+        count = 0
+        for word in self.vocab:
+            if word in self.lexicon.word_to_int.keys():
+                #pdb.set_trace()
+                self.vocab_emb[count,:] = self.lexicon.embeddings[self.lexicon.word_to_int[word]]
+            else:
+            
+                self.vocab_emb[count,:] = self.lexicon.embeddings[self.lexicon.word_to_int["OOL"]]
+            count +=1
+        #self.vocab_emb = torch.tensor(vocab_list, dtype=torch.float64)
+            
         # We wrap the following matrices in nn.Parameter objects.
         # This lets PyTorch know that these are parameters of the model
         # that should be listed in self.parameters() and will be
@@ -316,14 +437,36 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # We can also store other tensors in the model class,
         # like constant coefficients that shouldn't be altered by
         # training, but those wouldn't use nn.Parameter.
-        self.X = nn.Parameter(torch.zeros((self.dim, self.dim)), requires_grad=True)
-        self.Y = nn.Parameter(torch.zeros((self.dim, self.dim)), requires_grad=True)
+        self.X = nn.Parameter(torch.zeros((self.dim, self.dim),dtype=torch.float32), requires_grad=True)
+        self.Y = nn.Parameter(torch.zeros((self.dim, self.dim),dtype=torch.float32), requires_grad=True)
 
     def prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> float:
         # This returns an ordinary float probability, using the
         # .item() method that extracts a number out of a Tensor.
-        p = self.log_prob(x, y, z).exp().item()
-        assert isinstance(p, float)  # checks that we'll adhere to the return type annotation, which is inherited from superclass
+        #pdb.set_trace()
+        
+        
+        if (z =="OOV" or z not in self.lexicon.word_to_int.keys()):
+            z = self.lexicon.embeddings[self.lexicon.word_to_int["OOL"]]
+        else:
+            z = self.lexicon.embeddings[self.lexicon.word_to_int[z]] 
+        
+
+    
+        if (y=="OOV" or y not in self.lexicon.word_to_int.keys()):
+            y = self.lexicon.embeddings[self.lexicon.word_to_int["OOL"]]
+        else:
+            y = self.lexicon.embeddings[self.lexicon.word_to_int[y]] 
+        
+     
+       
+        if (x=="OOV" or x not in self.lexicon.word_to_int.keys()):
+            x = self.lexicon.embeddings[self.lexicon.word_to_int["OOL"]]
+        else:
+            x = self.lexicon.embeddings[self.lexicon.word_to_int[x]] 
+        
+        p = self.log_prob(x, y, z)
+       # assert isinstance(p, float)  # checks that we'll adhere to the return type annotation, which is inherited from superclass
         return p
 
     def log_prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> torch.Tensor:
@@ -340,7 +483,24 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # The operator `@` is a nice way to write matrix multiplication:
         # you can write J @ K as shorthand for torch.mul(J, K).
         # J @ K looks more like the usual math notation.
-        raise NotImplementedError("Implement me!")
+        #pdb.set_trace()
+        x = x.double()
+        y = y.double()
+        z = x.double()
+        Xmat = torch.matmul(x,self.X.double())
+        Ymat =  torch.matmul(y,self.Y.double())
+        # Z_den = torch.sum(torch.exp(torch.matmul(Xmat,torch.transpose(self.vocab_emb,0,1).double())
+        #                      + torch.matmul(Ymat,torch.transpose(self.vocab_emb,0,1).double())))
+        if self.Z_den == None:
+            Z_den = torch.logsumexp(torch.matmul(Xmat,torch.transpose(self.vocab_emb,0,1).double())
+                                + torch.matmul(Ymat,torch.transpose(self.vocab_emb,0,1).double()),0)
+        else:
+            Z_den = self.Z_den
+        p_num = torch.exp(torch.matmul(Xmat,z) + torch.matmul(Ymat,z))
+        p = torch.log(p_num) - Z_den
+        self.Z_den = Z_den
+        
+        return p
 
     def train(self, file: Path):    # type: ignore
         
@@ -393,11 +553,229 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # progress dots using the `show_progress` method defined above.  Even
         # better, you could show a graphical progress bar using the tqdm module --
         # simply iterate over
-        #     tqdm.tqdm(read_trigrams(file), total=10*N)
         # instead of iterating over
         #     read_trigrams(file)
         #####################
+        
+        #torch.autograd.set_detect_anomaly(True)
+        #with trange(10) as pbar:
+            #for i in pbar:
+        for i in range(10):
+            total_loss = 0
+            loss = 0
+            
+            for trigram in tqdm.tqdm(read_trigrams(file, self.vocab), total=N):
+            #  for trigram in read_trigrams(file, self.vocab):
+                loss = self.prob(trigram[0],trigram[1],trigram[2])        
+                #loss += self.prob(trigram[0],trigram[1],trigram[2])
+                
+            
+                l2_reg = torch.tensor(0.)
+                for param in self.parameters():
+                    l2_reg += torch.norm(param)
 
+                loss = (loss - self.l2 * l2_reg)/N
+                (-loss).backward(retain_graph=True)
+                optimizer.step()
+                optimizer.zero_grad() 
+                total_loss = total_loss + loss.item()
+
+        
+            
+            
+            # if math.isnan(self.X[0][0].item()) :
+            #      pdb.set_trace()
+            #pdb.set_trace()
+            #pbar.set_description(f"Epoch {i}: F = {loss.item()} ")
+            print(f"epoch {i+1}: F = {total_loss} ")
+       
+        log.info("done optimizing.")
+
+        # So how does the `backward` method work?
+        #
+        # As Python sees it, your parameters and the values that you compute
+        # from them are not actually numbers.  They are `torch.Tensor` objects.
+        # A Tensor may represent a numeric scalar, vector, matrix, etc.
+        #
+        # Every Tensor knows how it was computed.  For example, if you write `a
+        # = b + exp(c)`, PyTorch not only computes `a` but also stores
+        # backpointers in `a` that remember how the numeric value of `a` depends
+        # on the numeric values of `b` and `c`.  In turn, `b` and `c` have their
+        # own backpointers that remember what they depend on, and so on, all the
+        # way back to the parameters.  This is just like the backpointers in
+        # parsing!
+        #
+        # Every Tensor has a `backward` method that computes the gradient of its
+        # numeric value with respect to the parameters, using "back-propagation"
+        # through this computation graph.  In particular, once you've computed
+        # the forward quantity F_i(θ) as a tensor, you can trace backwards to
+        # get its gradient -- i.e., to find out how rapidly it would change if
+        # each parameter were changed slightly.
+
+
+        def prob_batch(self, x: Wordtype, y: Wordtype, z: Wordtype) -> float:
+        # This returns an ordinary float probability, using the
+        # .item() method that extracts a number out of a Tensor.
+        #pdb.set_trace()
+            batchz = torch.zeros((len(z),self.dim),dtype=torch.float32)
+            batchy = torch.zeros((len(z),self.dim),dtype=torch.float32)
+            batchx = torch.zeros((len(z),self.dim),dtype=torch.float32)
+            count = 0
+            for zi in z:
+                if (zi =="OOV" or zi not in self.lexicon.word_to_int.keys()):
+                    zi = self.lexicon.embeddings[self.lexicon.word_to_int["OOL"]]
+                else:
+                    zi = self.lexicon.embeddings[self.lexicon.word_to_int[zi]] 
+                batchz[count,:] = zi
+                count+=1
+
+            count = 0
+            for yi in y:
+                if (yi=="OOV" or yi not in self.lexicon.word_to_int.keys()):
+                    yi = self.lexicon.embeddings[self.lexicon.word_to_int["OOL"]]
+                else:
+                    yi = self.lexicon.embeddings[self.lexicon.word_to_int[yi]] 
+                batchy[count,:] = yi
+                count+=1
+            count = 0
+            for xi in x:
+                if (xi=="OOV" or xi not in self.lexicon.word_to_int.keys()):
+                    xi = self.lexicon.embeddings[self.lexicon.word_to_int["OOL"]]
+                else:
+                    xi = self.lexicon.embeddings[self.lexicon.word_to_int[xi]] 
+                batchx[count,:] = xi
+                count+=1
+            p = self.log_prob(batchx, batchy, batchz)
+        # assert isinstance(p, float)  # checks that we'll adhere to the return type annotation, which is inherited from superclass
+            return p
+
+    def log_prob_batch(self, x: Wordtype, y: Wordtype, z: Wordtype) -> torch.Tensor:
+        """Return log p(z | xy) according to this language model."""
+        # TODO: IMPLEMENT ME!
+        # Don't forget that you can create additional methods
+        # that you think are useful, if you'd like.
+        # It's cleaner than making this function massive.
+        #
+        # Be sure to use vectorization over the vocabulary to
+        # compute the normalization constant Z, or this method
+        # will be very slow.
+        #
+        # The operator `@` is a nice way to write matrix multiplication:
+        # you can write J @ K as shorthand for torch.mul(J, K).
+        # J @ K looks more like the usual math notation.
+        #pdb.set_trace()
+        x = x.double()
+        y = y.double()
+        z = x.double()
+        Xmat = torch.matmul(x,self.X.double())
+        Ymat =  torch.matmul(y,self.Y.double())
+        # Z_den = torch.sum(torch.exp(torch.matmul(Xmat,torch.transpose(self.vocab_emb,0,1).double())
+        #                      + torch.matmul(Ymat,torch.transpose(self.vocab_emb,0,1).double())))
+        #if self.Z_den == None:
+        Z_den = torch.logsumexp(torch.matmul(Xmat,torch.transpose(self.vocab_emb,0,1).double())
+                                + torch.matmul(Ymat,torch.transpose(self.vocab_emb,0,1).double()),1)
+        #else:
+        #    Z_den = self.Z_den
+        p_num = torch.logsumexp(torch.matmul(Xmat,torch.transpose(z,0,1)) + torch.matmul(Ymat,torch.transpose(z,0,1)),1)
+        p = torch.sum(torch.log(p_num) - Z_den)
+        #self.Z_den = Z_den.item()
+        
+        return p
+
+    def train_batch(self, file: Path):    # type: ignore
+        
+        ### Technically this method shouldn't be called `train`,
+        ### because this means it overrides not only `LanguageModel.train` (as desired)
+        ### but also `nn.Module.train` (which has a different type). 
+        ### However, we won't be trying to use the latter method.
+        ### The `type: ignore` comment above tells the type checker to ignore this inconsistency.
+        
+        # Optimization hyperparameters.
+        gamma0 = 0.1  # initial learning rate
+
+        # This is why we needed the nn.Parameter above.
+        # The optimizer needs to know the list of parameters
+        # it should be trying to update.
+        optimizer = optim.SGD(self.parameters(), lr=gamma0)
+
+        # Initialize the parameter matrices to be full of zeros.
+        nn.init.zeros_(self.X)   # type: ignore
+        nn.init.zeros_(self.Y)   # type: ignore
+
+        N = num_tokens(file)
+        log.info("Start optimizing on {N} training tokens...")
+
+        #####################
+        # TODO: Implement your SGD here by taking gradient steps on a sequence
+        # of training examples.  Here's how to use PyTorch to make it easy:
+        #
+        # To get the training examples, you can use the `read_trigrams` function
+        # we provided, which will iterate over all N trigrams in the training
+        # corpus.
+        #
+        # For each successive training example i, compute the stochastic
+        # objective F_i(θ).  This is called the "forward" computation. Don't
+        # forget to include the regularization term.
+        #
+        # To get the gradient of this objective (∇F_i(θ)), call the `backward`
+        # method on the number you computed at the previous step.  This invokes
+        # back-propagation to get the gradient of this number with respect to
+        # the parameters θ.  This should be easier than implementing the
+        # gradient method from the handout.
+        #
+        # Finally, update the parameters in the direction of the gradient, as
+        # shown in Algorithm 1 in the reading handout.  You can do this `+=`
+        # yourself, or you can call the `step` method of the `optimizer` object
+        # we created above.  See the reading handout for more details on this.
+        #
+        # For the EmbeddingLogLinearLanguageModel, you should run SGD
+        # optimization for 10 epochs and then stop.  You might want to print
+        # progress dots using the `show_progress` method defined above.  Even
+        # better, you could show a graphical progress bar using the tqdm module --
+        # simply iterate over
+        # instead of iterating over
+        #     read_trigrams(file)
+        #####################
+        
+        #torch.autograd.set_detect_anomaly(True)
+        #with trange(10) as pbar:
+            #for i in pbar:
+        batch_size=64
+        batchx = []
+        batchy = []
+        batchz = []
+        for i in range(10):
+            total_loss = 0
+            loss = 0
+            
+            for trigram in tqdm.tqdm(read_trigrams(file, self.vocab), total=N):
+            #  for trigram in read_trigrams(file, self.vocab):
+                count=0
+                while count < batch_size:
+                    batchx.append(trigram[0])
+                    batchy.append(trigram[1])
+                    batchz.append(trigram[2])
+                    count+=1
+                    #pdb.set_trace()
+                loss += self.prob(batchx,batchy,batchz)        
+                #loss += self.prob(trigram[0],trigram[1],trigram[2])
+                
+            
+            l2_reg = torch.tensor(0.)
+            for param in self.parameters():
+                l2_reg += torch.norm(param)
+            loss = (loss - self.l2 * l2_reg)/N
+        
+            
+            (-loss).backward(retain_graph=True)
+            optimizer.step()
+            optimizer.zero_grad() 
+            # if math.isnan(self.X[0][0].item()) :
+            #      pdb.set_trace()
+            #pdb.set_trace()
+            #pbar.set_description(f"Epoch {i}: F = {loss.item()} ")
+            print(f"epoch {i+1}: F = {loss.item()} ")
+       
         log.info("done optimizing.")
 
         # So how does the `backward` method work?
