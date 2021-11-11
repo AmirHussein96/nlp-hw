@@ -1,21 +1,7 @@
 #!/usr/bin/env python3
-# CS465 at Johns Hopkins University.
-# Module to estimate n-gram probabilities.
-
-# Updated by Jason Baldridge <jbaldrid@mail.utexas.edu> for use in NLP
-# course at UT Austin. (9/9/2008)
-
-# Modified by Mozhi Zhang <mzhang29@jhu.edu> to add the new log linear model
-# with word embeddings.  (2/17/2016)
-
-# Refactored by Arya McCarthy <xkcd@jhu.edu> because inheritance is cool
-# and so is separating business logic from other stuff.  (9/19/2019)
-
-# Patched by Arya McCarthy <arya@jhu.edu> to fix a counting issue that
-# evidently was known pre-2016 but then stopped being handled?
-
-# Further refactoring by Jason Eisner <jason@cs.jhu.edu> 
-# and Brian Lu <zlu39@jhu.edu>.  (9/26/2021)
+# 601.465/665 - Natural Language Processing
+# Assignment 6 - HMM
+# Author: Amir Hussein
 
 from __future__ import annotations
 
